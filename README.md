@@ -1,4 +1,4 @@
-# Hydra Apptainer Launcher 
+# Hydra Apptainer Launcher 🐍📦🚀
 
 [Hydra](https://hydra.cc) is a powerful framework from Meta for elegantly configuring complex applications. It lets you compose configurations dynamically, override parameters from the command line, and run hyperparameter sweeps with minimal code changes.
 
