@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # This is REQUIRED: submitit deserializes the launcher object on the compute
 # node, so the plugin must be importable inside the container.
 
-RUN pip install -
+RUN pip install git+https://github.com/EduardoRosLab/hydra-apptainer-launcher.git
 
 # Copy and install your project
 COPY . /app/

@@ -1,13 +1,23 @@
-# hydra-apptainer-launcher
+# Hydra Apptainer Launcher 
 
-A Hydra launcher plugin that runs jobs inside Apptainer containers on SLURM clusters.
+[Hydra](https://hydra.cc) is a powerful framework from Meta for elegantly configuring complex applications. It lets you compose configurations dynamically, override parameters from the command line, and run hyperparameter sweeps with minimal code changes.
+
+This plugin extends Hydra's job launching capabilities by transparently executing your Python scripts inside Apptainer containers on HPC systems — ensuring all dependencies are available on compute nodes that lack your development environment.
+
+**Features:**
+- 🚀 Launch SLURM jobs that run inside Apptainer containers
+- 🔧 Full control over SLURM resources (GPUs, CPUs, memory, partitions)
+- 🔄 Native support for Hydra multirun (hyperparameter sweeps)
+- 📦 Zero code changes to your Hydra applications
+- 🧪 Local testing mode without SLURM
+
 
 ## The Problem
 
 On HPC clusters, **compute nodes don't have your Python dependencies installed**. Apptainer containers carry the entire runtime environment to every node, and this plugin makes Hydra launch everything inside those containers transparently.
 
 ```
-Login Node                              Compute Node
+Login Node: atchbp                        Compute Node: compute-0-[0-10]
 ┌──────────────────┐                    ┌──────────────────────────────────────┐
 │ python train.py  │    SLURM job       │ apptainer exec --nv container.sif   │
 │                  │ ──────────────►    │   python train.py                   │
@@ -22,12 +32,12 @@ Login Node                              Compute Node
 ## Install
 
 ```bash
-pip install git+https://your-repo.com/hydra-apptainer-launcher.git
+pip install git+https://github.com/EduardoRosLab/hydra-apptainer-launcher.git
 ```
 
 Or for development:
 ```bash
-git clone <repo-url>
+git clone https://github.com/EduardoRosLab/hydra-apptainer-launcher.git
 pip install -e ./hydra-apptainer-launcher
 ```
 
@@ -51,6 +61,8 @@ if __name__ == "__main__":
 
 ### 2. Create your app config
 
+This YAML file contains your application's hyperparameters.
+
 ```yaml
 # scripts/config.yaml
 lr: 0.001
@@ -59,19 +71,45 @@ batch_size: 256
 
 ### 3. Create a launcher config
 
+This YAML file tells Hydra to use the Apptainer + SLURM launcher and specify the SLURM resources.
+
 ```yaml
 # scripts/hydra/launcher/submitit_apptainer.yaml
 _target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomSlurmLauncher
 submitit_folder: ${hydra.sweep.dir}/.submitit/%j
 timeout_min: 360
-partition: gpu
+partition: full
 gpus_per_node: 1
 cpus_per_task: 8
 mem_gb: 32
 python: "apptainer exec --nv ${hydra.runtime.cwd}/my_project.sif python"
 ```
 
+### Project Structure
+
+After installing the plugin, your project needs:
+
+1. Launcher YAML file(s) in `scripts/hydra/launcher/` — adapted to your resources
+2. A `Dockerfile` that installs your dependencies + this plugin (see [templates](examples/templates/))
+3. A `container.sh` to build the `.sif` image
+
+```
+my_project/
+├── scripts/
+│   ├── train.py
+│   ├── config.yaml
+│   └── hydra/
+│       └── launcher/
+│           └── submitit_apptainer.yaml
+├── Dockerfile
+├── container.sh
+└── requirements.txt    # includes: hydra-apptainer-launcher
+```
+
+
 ### 4. Run
+
+Hydra allows you to do parameter sweeps easily. Each combination becomes a separate SLURM job, each running inside the container.
 
 ```bash
 # Single job on SLURM inside the container
@@ -148,23 +186,6 @@ On the **login node** (where you launch jobs):
 
 **You do NOT need your project's heavy dependencies (JAX, PyTorch, etc.) on the login node.** Those live inside the container. You only need Hydra and this plugin to *submit* jobs.
 
-### Project Structure
-
-```
-your_project/
-├── scripts/
-│   ├── train.py                  # Your Hydra-decorated script
-│   ├── config.yaml               # Your application config
-│   └── hydra/
-│       └── launcher/
-│           └── submitit_apptainer.yaml   # Launcher config
-├── Dockerfile                    # Defines the container contents
-├── container.sh                  # Builds the .sif file
-└── my_project.sif                # The built Apptainer image (generated)
-```
-
----
-
 ## Building Your Container
 
 The container must include **everything your code needs to run**: Python, all pip packages, your source code, this plugin, and any system libraries.
@@ -174,10 +195,6 @@ The container must include **everything your code needs to run**: Python, all pi
 ```dockerfile
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential git \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 # Install your Python dependencies
@@ -186,7 +203,7 @@ RUN pip install -r requirements.txt
 
 # Install this plugin INSIDE the container
 # Required: submitit deserializes the launcher object on the compute node
-RUN pip install hydra-apptainer-launcher
+RUN pip install git+https://github.com/EduardoRosLab/hydra-apptainer-launcher.git
 
 # Install your project
 COPY . /app/
@@ -224,121 +241,6 @@ apptainer exec --nv my_project.sif python -c "import torch; print(torch.cuda.is_
 
 # Run your script (locally, no SLURM)
 apptainer exec --nv my_project.sif python scripts/train.py
-```
-
----
-
-## Launcher Configurations
-
-### Config A: Apptainer + SLURM (GPU) — Most Common
-
-```yaml
-# scripts/hydra/launcher/submitit_apptainer.yaml
-
-# CustomSlurmLauncher submits jobs via sbatch to SLURM
-_target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomSlurmLauncher
-submitit_folder: ${hydra.sweep.dir}/.submitit/%j
-
-# SLURM resource request
-timeout_min: 360        # 6 hours
-partition: gpu           # change to your cluster's partition
-gpus_per_node: 1
-cpus_per_task: 8
-mem_gb: 32
-
-# The critical line: replaces "python" with "apptainer exec ... python"
-# --nv passes NVIDIA drivers into the container (required for GPU)
-python: "apptainer exec --nv ${hydra.runtime.cwd}/my_project.sif python"
-```
-
-SLURM handles scheduling. Apptainer handles the runtime environment.
-
-```bash
-python scripts/train.py -m hydra/launcher=submitit_apptainer
-```
-
-### Config B: Apptainer Locally (Testing)
-
-Test the container on the login node without SLURM:
-
-```yaml
-_target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomLocalLauncher
-submitit_folder: ${hydra.sweep.dir}/.submitit/%j
-gpus_per_node: 1
-python: "apptainer exec --nv ${hydra.runtime.cwd}/my_project.sif python"
-```
-
-### Config C: SLURM Without Apptainer
-
-If compute nodes have your dependencies (via modules or shared virtualenv):
-
-```yaml
-_target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomSlurmLauncher
-submitit_folder: ${hydra.sweep.dir}/.submitit/%j
-timeout_min: 360
-partition: gpu
-gpus_per_node: 1
-mem_gb: 32
-
-# Load modules on the compute node before running
-setup:
-  - "module load python/3.11"
-  - "module load cuda/12.0"
-  - "source /shared/envs/my_venv/bin/activate"
-```
-
-The `setup` field injects shell commands into the sbatch script *before* your job starts.
-
-### Config D: CPU-only Workload
-
-```yaml
-_target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomSlurmLauncher
-submitit_folder: ${hydra.sweep.dir}/.submitit/%j
-timeout_min: 120
-partition: cpu
-gpus_per_node: 0
-cpus_per_task: 16
-mem_gb: 64
-# No --nv flag: CPU-only job
-python: "apptainer exec ${hydra.runtime.cwd}/my_project.sif python"
-```
-
-### Config E: Bind Mounts for Data Access
-
-Apptainer auto-mounts `$HOME`, `/tmp`, and the current directory. For other paths:
-
-```yaml
-_target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomSlurmLauncher
-submitit_folder: ${hydra.sweep.dir}/.submitit/%j
-timeout_min: 360
-partition: gpu
-gpus_per_node: 1
-python: >-
-  apptainer exec --nv
-  --bind /data/datasets:/data/datasets
-  --bind /scratch/$USER:/scratch
-  ${hydra.runtime.cwd}/my_project.sif python
-```
-
-### Config F: Apptainer + SLURM with Module Loading
-
-Some clusters require loading Apptainer via the module system:
-
-```yaml
-_target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomSlurmLauncher
-submitit_folder: ${hydra.sweep.dir}/.submitit/%j
-timeout_min: 360
-partition: gpu
-gpus_per_node: 1
-mem_gb: 32
-
-# Commands run in sbatch BEFORE srun (on the compute node, host environment)
-setup:
-  - "module load apptainer/1.2"
-  - "export TMPDIR=/scratch/$USER/tmp"
-  - "mkdir -p $TMPDIR"
-
-python: "apptainer exec --nv /shared/containers/my_project.sif python"
 ```
 
 ---
@@ -423,7 +325,10 @@ python scripts/train.py -m \
 | `srun_args` | list[str] | `null` | Additional srun arguments |
 | `additional_parameters` | dict | `{}` | Arbitrary SLURM parameters |
 
+
 ---
+
+Check [submitit-launch](https://hydra.cc/docs/plugins/submitit_launcher/) for more details.
 
 ## Testing
 
@@ -437,115 +342,7 @@ pytest tests/test_plugin_discovery.py tests/test_local_launcher.py -v
 pytest tests/test_slurm_cluster.py -v -m slurm --sif-path /path/to/container.sif
 ```
 
----
 
-## Troubleshooting
-
-### "ModuleNotFoundError" on the compute node
-
-The container doesn't have the package, or the job isn't running inside the container.
-1. Check the `python` field points to the correct `.sif` file
-2. Test locally: `apptainer exec --nv my_project.sif python -c "import your_package"`
-
-### "ImportError: cannot import name 'CustomSlurmLauncher'"
-
-The plugin isn't installed inside the container. Add to your Dockerfile:
-```dockerfile
-RUN pip install hydra-apptainer-launcher
-```
-
-### GPU not visible inside container
-
-Ensure `--nv` is in the `python` parameter:
-```yaml
-python: "apptainer exec --nv /path/to/container.sif python"
-```
-
-### "apptainer: command not found" on compute node
-
-Use the `setup` field:
-```yaml
-setup:
-  - "module load apptainer"
-```
-
-### Container can't access data files
-
-Use `--bind`:
-```yaml
-python: "apptainer exec --nv --bind /data:/data ${hydra.runtime.cwd}/my_project.sif python"
-```
-
-### Jobs pending forever
-
-```bash
-squeue -u $USER
-sinfo -p <partition>
-```
-
-### Plugin not found on login node
-
-```bash
-pip install hydra-apptainer-launcher
-python -c "from hydra_plugins.hydra_apptainer_launcher import submitit_launcher; print('OK')"
-```
-
----
-
-## Using in Your Project
-
-After installing the plugin, your project needs:
-
-1. Launcher YAML file(s) in `scripts/hydra/launcher/` — adapted to your resources
-2. A `Dockerfile` that installs your dependencies + this plugin
-3. A `container.sh` to build the `.sif` image
-
-```
-my_project/
-├── scripts/
-│   ├── train.py
-│   ├── config.yaml
-│   └── hydra/
-│       └── launcher/
-│           └── submitit_apptainer.yaml
-├── Dockerfile
-├── container.sh
-└── requirements.txt    # includes: hydra-apptainer-launcher
-```
-
----
-
-## Quick Reference
-
-```bash
-# Local (no cluster)
-python scripts/train.py
-
-# Test container locally
-apptainer exec --nv my_project.sif python scripts/train.py
-
-# Submit to SLURM inside Apptainer
-python scripts/train.py -m hydra/launcher=submitit_apptainer
-
-# Parameter sweep
-python scripts/train.py -m hydra/launcher=submitit_apptainer lr=0.001,0.0001 seed=1,2,3
-
-# Override resources
-python scripts/train.py -m hydra/launcher=submitit_apptainer \
-  hydra.launcher.timeout_min=720 hydra.launcher.gpus_per_node=2
-
-# CPU-only job
-python scripts/train.py -m hydra/launcher=submitit_cpu
-
-# Check jobs
-squeue -u $USER
-
-# View logs
-cat outputs/<date>/<time>/.submitit/<job_id>/<job_id>_0_log.out
-
-# Build container
-bash container.sh
-```
 
 ## License
 
