@@ -31,11 +31,21 @@ Login Node: atchbp                        Compute Node: compute-0-[0-10]
 
 ## Install
 
+### Prerequisites
+
+On the **login node** (where you launch jobs):
+- A python virtual environment so you can install the plugin
+- Access to `sbatch` (SLURM commands)
+- The `.sif` container file on a shared filesystem
+
+**You do NOT need your project's heavy dependencies (JAX, PyTorch, etc.) on the login node.** Those live inside the container. You only need Hydra and this plugin to *submit* jobs.
+
+### Installation on the venv
 ```bash
 pip install git+https://github.com/EduardoRosLab/hydra-apptainer-launcher.git
 ```
 
-Or for development:
+Or for development or testing:
 ```bash
 git clone https://github.com/EduardoRosLab/hydra-apptainer-launcher.git
 pip install -e ./hydra-apptainer-launcher
@@ -216,76 +226,6 @@ Login node: submitit collects results from the shared filesystem
 
 ---
 
-## Setup
-
-### Prerequisites
-
-On the **login node** (where you launch jobs):
-- Python 3.8+ with Hydra installed
-- This plugin installed (`pip install hydra-apptainer-launcher`)
-- Access to `sbatch` (SLURM commands)
-- The `.sif` container file on a shared filesystem
-
-**You do NOT need your project's heavy dependencies (JAX, PyTorch, etc.) on the login node.** Those live inside the container. You only need Hydra and this plugin to *submit* jobs.
-
-## Building Your Container
-
-The container must include **everything your code needs to run**: Python, all pip packages, your source code, this plugin, and any system libraries.
-
-### Dockerfile
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install your Python dependencies
-COPY requirements.txt /app/
-RUN pip install -r requirements.txt
-
-# Install this plugin INSIDE the container
-# Required: submitit deserializes the launcher object on the compute node
-RUN pip install git+https://github.com/EduardoRosLab/hydra-apptainer-launcher.git
-
-# Install your project
-COPY . /app/
-RUN pip install -e .
-
-CMD ["/bin/bash"]
-```
-
-**Why must `hydra-apptainer-launcher` be installed inside the container?**
-
-When submitit runs on the compute node (inside the container), it deserializes the launcher object. That object is an instance of `CustomSlurmLauncher` from this package. If the package isn't inside the container, deserialization fails with `ImportError`.
-
-### Build Script
-
-```bash
-#!/bin/bash
-# container.sh — Build pipeline: Dockerfile → Docker → tar → Apptainer .sif
-
-rm -f my_project.sif my_project.tar
-docker rmi -f my_project
-
-docker build . -t my_project
-docker save -o my_project.tar my_project:latest
-apptainer build my_project.sif docker-archive://my_project.tar
-```
-
-### Verify
-
-```bash
-# Interactive shell inside the container
-apptainer shell --nv my_project.sif
-
-# Quick import test
-apptainer exec --nv my_project.sif python -c "import torch; print(torch.cuda.is_available())"
-
-# Run your script (locally, no SLURM)
-apptainer exec --nv my_project.sif python scripts/train.py
-```
-
----
 
 ## Examples
 
