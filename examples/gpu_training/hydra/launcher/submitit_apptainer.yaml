@@ -1,0 +1,10 @@
+# GPU training: Apptainer + SLURM
+_target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomSlurmLauncher
+submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+
+timeout_min: 480
+partition: full
+gpus_per_node: 1
+nodelist: compute-0-[9-10]
+
+python: "apptainer exec --nv ${hydra.runtime.cwd}/my_project.sif python"

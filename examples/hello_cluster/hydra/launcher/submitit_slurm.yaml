@@ -1,0 +1,8 @@
+# SLURM launcher without Apptainer
+# Use this if your compute nodes already have Python + dependencies
+_target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomSlurmLauncher
+submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+
+timeout_min: 10
+partition: full
+cpus_per_task: 1

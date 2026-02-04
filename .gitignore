@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+*.sif
+*.tar
+.eggs/
+*.so
+.pytest_cache/
+outputs/
+multirun/
+.submitit/

@@ -1,0 +1,15 @@
+# Apptainer + SLURM launcher configuration
+# Submits a SLURM job that runs inside an Apptainer container
+_target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomSlurmLauncher
+submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+
+# SLURM resources — adapt to your cluster
+timeout_min: 10
+partition: full
+gpus_per_node: 1
+cpus_per_task: 1
+
+# Run inside the Apptainer container
+# --nv: pass NVIDIA GPU drivers into the container
+# Change the path to your .sif file
+python: "apptainer exec --nv ${hydra.runtime.cwd}/my_project.sif python"

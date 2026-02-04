@@ -1,0 +1,4 @@
+lr: 0.001
+batch_size: 256
+seed: 42
+num_epochs: 100
