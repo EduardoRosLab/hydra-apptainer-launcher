@@ -71,7 +71,7 @@ batch_size: 256
 
 ### 3. Create a launcher config
 
-This YAML file tells Hydra to use the Apptainer + SLURM launcher and specify the SLURM resources.
+This YAML file tells Hydra to use the Apptainer + SLURM launcher and specify the SLURM resources. Check [submitit-slurm-launch](https://hydra.cc/docs/plugins/submitit_launcher/) for more details on available parameters.
 
 ```yaml
 # scripts/hydra/launcher/submitit_apptainer.yaml
@@ -79,9 +79,6 @@ _target_: hydra_plugins.hydra_apptainer_launcher.submitit_launcher.CustomSlurmLa
 submitit_folder: ${hydra.sweep.dir}/.submitit/%j
 timeout_min: 360
 partition: full
-gpus_per_node: 1
-cpus_per_task: 8
-mem_gb: 32
 python: "apptainer exec --nv ${hydra.runtime.cwd}/my_project.sif python"
 ```
 
@@ -118,6 +115,47 @@ python scripts/train.py -m hydra/launcher=submitit_apptainer
 # Parameter sweep (each combination = 1 SLURM job)
 python scripts/train.py -m hydra/launcher=submitit_apptainer lr=0.001,0.0001 batch_size=128,512
 ```
+
+### Output Structure
+
+After running a multirun sweep, Hydra creates the following directory structure for each job:
+
+```
+multirun/
+└── 2024-01-15/
+    └── 12-34-56/                    # Timestamp of launch
+        ├── .submitit/               # Submitit internal state
+        │   ├── 12345678/            # Job array ID
+        │   │   ├── 12345678_0_log.out
+        │   │   ├── 12345678_0_log.err
+        │   │   ├── 12345678_1_log.out
+        │   │   ├── 12345678_1_log.err
+        │   │   └── ...
+        │   └── ...
+        ├── 0/                       # First job (lr=0.001, batch_size=128)
+        │   ├── .hydra/
+        │   │   ├── config.yaml      # Resolved config for this job
+        │   │   ├── hydra.yaml
+        │   │   └── overrides.yaml
+        │   └── train.log            # Your application output
+        ├── 1/                       # Second job (lr=0.001, batch_size=512)
+        │   ├── .hydra/
+        │   └── train.log
+        ├── 2/                       # Third job (lr=0.0001, batch_size=128)
+        │   ├── .hydra/
+        │   └── train.log
+        ├── 3/                       # Fourth job (lr=0.0001, batch_size=512)
+        │   ├── .hydra/
+        │   └── train.log
+        ├── .hydra/
+        │   └── config.yaml          # Multirun config
+        ├── multirun.yaml            # Summary of all runs
+        └── optimization_results.yaml # Optional: results aggregation
+```
+
+Each numbered subdirectory (`0/`, `1/`, `2/`, ...) corresponds to one parameter combination and contains:
+- `.hydra/config.yaml` — the fully resolved configuration for that specific run
+- Your application's outputs (logs, checkpoints, etc.)
 
 ---
 
@@ -266,69 +304,6 @@ python scripts/train.py -m \
   seed=1,2
 ```
 
-### Limit Parallel Jobs
-
-```bash
-python scripts/train.py -m \
-  hydra/launcher=submitit_apptainer \
-  hydra.launcher.array_parallelism=4 \
-  lr=0.01,0.003,0.001,0.0003,0.0001
-```
-
-### Override Resources from CLI
-
-```bash
-python scripts/train.py -m \
-  hydra/launcher=submitit_apptainer \
-  hydra.launcher.timeout_min=720 \
-  hydra.launcher.gpus_per_node=2 \
-  hydra.launcher.partition=long_gpu
-```
-
----
-
-## Configuration Reference
-
-### Base Parameters (all executors)
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `submitit_folder` | str | `${hydra.sweep.dir}/.submitit/%j` | Where submitit stores job state/logs |
-| `timeout_min` | int | `60` | Maximum job runtime in minutes |
-| `cpus_per_task` | int | `null` | CPU cores per task |
-| `gpus_per_node` | int | `null` | GPUs per node |
-| `tasks_per_node` | int | `1` | Tasks per node |
-| `mem_gb` | int | `null` | Memory reservation in GB |
-| `nodes` | int | `1` | Number of nodes |
-| `name` | str | `${hydra.job.name}` | SLURM job name |
-| `stderr_to_stdout` | bool | `false` | Redirect stderr to stdout |
-| `python` | str | `null` | **Custom Python command — set this for Apptainer** |
-
-### SLURM-Specific Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `partition` | str | `null` | SLURM partition (queue) |
-| `qos` | str | `null` | Quality of Service |
-| `account` | str | `null` | Billing/project account |
-| `constraint` | str | `null` | Hardware constraints (e.g., `a100`) |
-| `exclude` | str | `null` | Nodes to exclude |
-| `gres` | str | `null` | Generic resources (e.g., `gpu:a100:1`) |
-| `cpus_per_gpu` | int | `null` | CPUs per GPU |
-| `gpus_per_task` | int | `null` | GPUs per task |
-| `mem_per_gpu` | str | `null` | Memory per GPU |
-| `mem_per_cpu` | str | `null` | Memory per CPU |
-| `signal_delay_s` | int | `120` | USR1 signal seconds before timeout |
-| `max_num_timeout` | int | `0` | Max retries on timeout |
-| `array_parallelism` | int | `256` | Max parallel jobs in array |
-| `setup` | list[str] | `null` | Shell commands before srun in sbatch |
-| `srun_args` | list[str] | `null` | Additional srun arguments |
-| `additional_parameters` | dict | `{}` | Arbitrary SLURM parameters |
-
-
----
-
-Check [submitit-launch](https://hydra.cc/docs/plugins/submitit_launcher/) for more details.
 
 ## Testing
 
@@ -343,6 +318,9 @@ pytest tests/test_slurm_cluster.py -v -m slurm --sif-path /path/to/container.sif
 ```
 
 
+## Troubleshooting
+
+- **Pickle error on compute node**: Ensure same python version on apptainer and login node. Ensure `hydra-apptainer-launcher` is installed inside the container.
 
 ## License
 

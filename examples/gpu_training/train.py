@@ -3,6 +3,7 @@
 import logging
 import os
 import platform
+import time
 
 import hydra
 from omegaconf import DictConfig
@@ -27,6 +28,7 @@ def train(cfg: DictConfig) -> None:
 
     # Simulate training loop
     for epoch in range(cfg.num_epochs):
+        time.sleep(60)  # Wait for 1 minute
         loss = 1.0 / (epoch + 1) * cfg.lr
         if epoch % 10 == 0:
             log.info(f"  Epoch {epoch}/{cfg.num_epochs}, loss={loss:.6f}")
