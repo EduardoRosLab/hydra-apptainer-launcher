@@ -50,7 +50,7 @@ pip install -e ./hydra-apptainer-launcher
 import hydra
 from omegaconf import DictConfig
 
-@hydra.main(version_base=None, config_path=".", config_name="config")
+@hydra.main(version_base=None, config_path=".", config_name="config") # Hydra entry point. This is where the magic happens.
 def train(cfg: DictConfig) -> None:
     import torch  # imported INSIDE the container on the compute node
     print(f"Training with lr={cfg.lr} on {torch.cuda.device_count()} GPUs")
@@ -114,7 +114,15 @@ python scripts/train.py -m hydra/launcher=submitit_apptainer
 
 # Parameter sweep (each combination = 1 SLURM job)
 python scripts/train.py -m hydra/launcher=submitit_apptainer lr=0.001,0.0001 batch_size=128,512
+
+#parameter sweep with each job in a different node
+python3 scripts/train.py -m \
+    hydra/launcher=submitit_apptainer \
+    +'hydra.launcher.additional_parameters={exclusive: ""}' \
+    lr=0.001,0.0001 batch_size=128,512
 ```
+
+
 
 ### Output Structure
 
@@ -124,14 +132,10 @@ After running a multirun sweep, Hydra creates the following directory structure 
 multirun/
 └── 2024-01-15/
     └── 12-34-56/                    # Timestamp of launch
-        ├── .submitit/               # Submitit internal state
-        │   ├── 12345678/            # Job array ID
-        │   │   ├── 12345678_0_log.out
-        │   │   ├── 12345678_0_log.err
-        │   │   ├── 12345678_1_log.out
-        │   │   ├── 12345678_1_log.err
-        │   │   └── ...
-        │   └── ...
+        ├── .submitit/               # Submitit JOBS and launched script
+        │   ├── JOB_ID/*sh          # SLURM job scripts
+        │   └── JOB_ID_0/*        # Output and error logs per job 0
+                    
         ├── 0/                       # First job (lr=0.001, batch_size=128)
         │   ├── .hydra/
         │   │   ├── config.yaml      # Resolved config for this job
